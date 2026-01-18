@@ -2,7 +2,7 @@
 <html lang="en">
 <head>
     <meta charset="UTF-8">
-    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no, interactive-widget=resizes-content">
     <title>TERMINAL ESCAPE</title>
     <style>
         @import url('https://fonts.googleapis.com/css2?family=VT323&display=swap');
@@ -392,6 +392,91 @@
             40% { content: '.'; }
             60% { content: '..'; }
             80%, 100% { content: '...'; }
+        }
+
+        /* Mobile keyboard support */
+        html, body {
+            height: 100%;
+            height: 100dvh; /* Dynamic viewport height - accounts for mobile UI */
+        }
+
+        #screen {
+            height: 100dvh;
+        }
+
+        /* When keyboard is visible, shrink content */
+        body.keyboard-visible #screen {
+            height: calc(var(--viewport-height, 100vh));
+        }
+
+        body.keyboard-visible #content {
+            padding: 15px;
+        }
+
+        body.keyboard-visible #output {
+            max-height: calc(var(--viewport-height, 100vh) - 120px);
+        }
+
+        body.keyboard-visible #ascii-face {
+            font-size: 8px;
+            line-height: 1;
+        }
+
+        body.keyboard-visible #inline-face {
+            font-size: 6px !important;
+            line-height: 1 !important;
+        }
+
+        /* Mobile-specific adjustments */
+        @media (max-width: 600px) {
+            #content {
+                padding: 15px;
+                font-size: 16px;
+            }
+
+            #ascii-face {
+                font-size: 10px;
+                letter-spacing: 1px;
+            }
+
+            #user-input {
+                font-size: 16px; /* Prevents iOS zoom on focus */
+            }
+
+            #input-line {
+                padding: 10px 0;
+            }
+
+            .task-item {
+                margin-left: 10px;
+                font-size: 14px;
+            }
+
+            #api-modal input {
+                width: 280px;
+                font-size: 16px;
+            }
+
+            #api-modal {
+                padding: 20px;
+                text-align: center;
+            }
+        }
+
+        /* Extra small screens */
+        @media (max-height: 500px) {
+            #content {
+                padding: 10px;
+            }
+
+            #output {
+                font-size: 14px;
+            }
+
+            #ascii-face {
+                font-size: 8px;
+                line-height: 1;
+            }
         }
     </style>
 </head>
@@ -1405,7 +1490,79 @@ IMPORTANT RULES:
             userInput.focus();
         });
 
+        // ============ MOBILE KEYBOARD HANDLING ============
+        function setupMobileKeyboard() {
+            const initialHeight = window.innerHeight;
+
+            // Use visualViewport API if available (best for mobile)
+            if (window.visualViewport) {
+                let lastHeight = window.visualViewport.height;
+
+                window.visualViewport.addEventListener('resize', () => {
+                    const currentHeight = window.visualViewport.height;
+                    const heightDiff = initialHeight - currentHeight;
+
+                    // If viewport shrunk significantly, keyboard is probably visible
+                    if (heightDiff > 150) {
+                        document.body.classList.add('keyboard-visible');
+                        document.body.style.setProperty('--viewport-height', `${currentHeight}px`);
+
+                        // Scroll input into view
+                        setTimeout(() => {
+                            userInput.scrollIntoView({ behavior: 'smooth', block: 'end' });
+                            scrollToBottom();
+                        }, 100);
+                    } else {
+                        document.body.classList.remove('keyboard-visible');
+                        document.body.style.setProperty('--viewport-height', `${initialHeight}px`);
+                    }
+
+                    lastHeight = currentHeight;
+                });
+
+                // Also handle scroll to keep input visible
+                window.visualViewport.addEventListener('scroll', () => {
+                    if (document.body.classList.contains('keyboard-visible')) {
+                        scrollToBottom();
+                    }
+                });
+            } else {
+                // Fallback for browsers without visualViewport
+                window.addEventListener('resize', () => {
+                    const currentHeight = window.innerHeight;
+                    const heightDiff = initialHeight - currentHeight;
+
+                    if (heightDiff > 150) {
+                        document.body.classList.add('keyboard-visible');
+                        document.body.style.setProperty('--viewport-height', `${currentHeight}px`);
+                    } else {
+                        document.body.classList.remove('keyboard-visible');
+                    }
+                });
+            }
+
+            // Focus/blur handlers for input
+            userInput.addEventListener('focus', () => {
+                // Small delay to let keyboard appear
+                setTimeout(() => {
+                    scrollToBottom();
+                    userInput.scrollIntoView({ behavior: 'smooth', block: 'end' });
+                }, 300);
+            });
+
+            // Prevent page scroll on iOS when keyboard appears
+            document.body.addEventListener('touchmove', (e) => {
+                if (document.body.classList.contains('keyboard-visible')) {
+                    // Allow scrolling within output, prevent body scroll
+                    if (!e.target.closest('#output')) {
+                        e.preventDefault();
+                    }
+                }
+            }, { passive: false });
+        }
+
         // ============ START GAME ============
+        setupMobileKeyboard();
         init();
     </script>
 </body>
