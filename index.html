@@ -101,7 +101,6 @@
         }
 
         #content {
-            padding: 30px;
             color: var(--terminal-green);
             font-size: 18px;
             text-shadow: 0 0 10px var(--terminal-glow);
@@ -114,7 +113,13 @@
 
         #face-container {
             text-align: center;
-            margin-bottom: 30px;
+            padding: 20px;
+            flex: 0 0 45%;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            border-bottom: 2px solid rgba(51, 255, 51, 0.3);
+            background: rgba(10, 10, 10, 0.5);
         }
 
         #ascii-face {
@@ -122,6 +127,7 @@
             line-height: 1.2;
             white-space: pre;
             letter-spacing: 2px;
+            transition: all 0.3s ease;
         }
 
         .cursor {
@@ -145,8 +151,10 @@
             text-align: left;
             display: flex;
             flex-direction: column;
-            height: 100%;
+            flex: 1;
             margin: 0 auto;
+            padding: 20px 30px;
+            overflow: hidden;
         }
 
         #output {
@@ -321,10 +329,16 @@
             flex-direction: column;
             justify-content: center;
             align-items: center;
+            padding: 30px;
         }
 
         #welcome-cursor {
             margin-top: 30px;
+        }
+
+        #welcome-message {
+            font-size: 24px;
+            margin-bottom: 20px;
         }
 
         /* API Key modal */
@@ -417,26 +431,34 @@
             max-height: calc(var(--viewport-height, 100vh) - 120px);
         }
 
+        body.keyboard-visible #face-container {
+            flex: 0 0 30%;
+            padding: 10px;
+        }
+
         body.keyboard-visible #ascii-face {
             font-size: 8px;
             line-height: 1;
         }
 
-        body.keyboard-visible #inline-face {
-            font-size: 6px !important;
-            line-height: 1 !important;
-        }
-
         /* Mobile-specific adjustments */
         @media (max-width: 600px) {
             #content {
-                padding: 15px;
                 font-size: 16px;
+            }
+
+            #face-container {
+                flex: 0 0 35%;
+                padding: 10px;
             }
 
             #ascii-face {
                 font-size: 10px;
                 letter-spacing: 1px;
+            }
+
+            #terminal {
+                padding: 15px 20px;
             }
 
             #user-input {
@@ -465,8 +487,9 @@
 
         /* Extra small screens */
         @media (max-height: 500px) {
-            #content {
-                padding: 10px;
+            #face-container {
+                flex: 0 0 30%;
+                padding: 5px;
             }
 
             #output {
@@ -474,8 +497,12 @@
             }
 
             #ascii-face {
-                font-size: 8px;
+                font-size: 7px;
                 line-height: 1;
+            }
+
+            #terminal {
+                padding: 10px;
             }
         }
     </style>
@@ -498,10 +525,12 @@
 
     <div id="screen">
         <div id="content">
+            <div id="face-container">
+                <pre id="ascii-face"></pre>
+            </div>
+
             <div id="welcome-screen">
-                <div id="face-container">
-                    <pre id="ascii-face"></pre>
-                </div>
+                <div id="welcome-message">TERMINAL ESCAPE</div>
                 <div id="welcome-cursor"><span class="cursor"></span></div>
             </div>
 
@@ -610,9 +639,146 @@
 
         const sound = new SoundEngine();
 
+        // ============ EXPRESSION MANAGER ============
+        class ExpressionManager {
+            constructor(faceElement) {
+                this.faceElement = faceElement;
+                this.currentExpression = 'neutral';
+                this.blinkInterval = null;
+                this.animationQueue = [];
+                this.isAnimating = false;
+            }
+
+            setExpression(expression, duration = 0) {
+                if (!faceFrames[expression]) {
+                    console.warn(`Expression "${expression}" not found`);
+                    return;
+                }
+
+                this.currentExpression = expression;
+                this.faceElement.textContent = faceFrames[expression];
+
+                if (duration > 0) {
+                    setTimeout(() => {
+                        this.setExpression('neutral');
+                    }, duration);
+                }
+            }
+
+            playSequence(sequence, callback) {
+                if (this.isAnimating) {
+                    this.animationQueue.push({ sequence, callback });
+                    return;
+                }
+
+                this.isAnimating = true;
+                let index = 0;
+
+                const playNext = () => {
+                    if (index >= sequence.length) {
+                        this.isAnimating = false;
+                        if (callback) callback();
+
+                        // Play next queued animation
+                        if (this.animationQueue.length > 0) {
+                            const next = this.animationQueue.shift();
+                            this.playSequence(next.sequence, next.callback);
+                        }
+                        return;
+                    }
+
+                    const step = sequence[index];
+                    this.setExpression(step.expression);
+
+                    setTimeout(() => {
+                        index++;
+                        playNext();
+                    }, step.duration || 500);
+                };
+
+                playNext();
+            }
+
+            startBlinking() {
+                this.stopBlinking();
+                this.blinkInterval = setInterval(() => {
+                    if (Math.random() > 0.7 && !this.isAnimating) {
+                        const current = this.currentExpression;
+                        this.setExpression('blink');
+                        setTimeout(() => {
+                            this.setExpression(current);
+                        }, 150);
+                    }
+                }, 2500);
+            }
+
+            stopBlinking() {
+                if (this.blinkInterval) {
+                    clearInterval(this.blinkInterval);
+                    this.blinkInterval = null;
+                }
+            }
+
+            // Emotion shortcuts
+            showHappy() { this.setExpression('happy', 2000); }
+            showSad() { this.setExpression('sad', 2000); }
+            showSurprised() { this.setExpression('surprised', 1500); }
+            showWorried() { this.setExpression('worried', 2000); }
+            showAngry() { this.setExpression('angry', 2000); }
+            showExcited() { this.setExpression('excited', 2000); }
+            showPleading() { this.setExpression('pleading', 3000); }
+            showThinking() { this.setExpression('thinking', 0); }
+            showIntense() { this.setExpression('intense', 2500); }
+
+            // Animation sequences
+            lookAround() {
+                this.playSequence([
+                    { expression: 'neutral', duration: 300 },
+                    { expression: 'lookLeft', duration: 600 },
+                    { expression: 'neutral', duration: 300 },
+                    { expression: 'lookRight', duration: 600 },
+                    { expression: 'neutral', duration: 400 }
+                ]);
+            }
+
+            reactToInput() {
+                this.playSequence([
+                    { expression: 'lookDown', duration: 200 },
+                    { expression: 'neutral', duration: 300 }
+                ]);
+            }
+
+            excitedReaction() {
+                this.playSequence([
+                    { expression: 'surprised', duration: 300 },
+                    { expression: 'excited', duration: 800 },
+                    { expression: 'happy', duration: 600 },
+                    { expression: 'neutral', duration: 0 }
+                ]);
+            }
+
+            negativeReaction() {
+                this.playSequence([
+                    { expression: 'surprised', duration: 300 },
+                    { expression: 'worried', duration: 500 },
+                    { expression: 'sad', duration: 700 },
+                    { expression: 'pleading', duration: 1000 },
+                    { expression: 'neutral', duration: 0 }
+                ]);
+            }
+
+            intenseStare() {
+                this.playSequence([
+                    { expression: 'neutral', duration: 200 },
+                    { expression: 'intense', duration: 2000 },
+                    { expression: 'neutral', duration: 0 }
+                ]);
+            }
+        }
+
         // ============ ASCII FACE FRAMES ============
         const faceFrames = {
-            eyesOpen: `
+            neutral: `
     ╔══════════════════════════════╗
     ║                              ║
     ║      ┌──────┐  ┌──────┐      ║
@@ -626,7 +792,119 @@
     ║                              ║
     ╚══════════════════════════════╝`,
 
-            eyesClosed: `
+            happy: `
+    ╔══════════════════════════════╗
+    ║                              ║
+    ║      ┌──────┐  ┌──────┐      ║
+    ║      │  ◉◉  │  │  ◉◉  │      ║
+    ║      │      │  │      │      ║
+    ║      └──────┘  └──────┘      ║
+    ║                              ║
+    ║            ────              ║
+    ║                              ║
+    ║        ╭──────────╮          ║
+    ║                              ║
+    ╚══════════════════════════════╝`,
+
+            excited: `
+    ╔══════════════════════════════╗
+    ║                              ║
+    ║      ┌──────┐  ┌──────┐      ║
+    ║      │ ★██★ │  │ ★██★ │      ║
+    ║      │  ██  │  │  ██  │      ║
+    ║      └──────┘  └──────┘      ║
+    ║                              ║
+    ║            ────              ║
+    ║            ████              ║
+    ║        ╭──────────╮          ║
+    ║                              ║
+    ╚══════════════════════════════╝`,
+
+            worried: `
+    ╔══════════════════════════════╗
+    ║                              ║
+    ║      ┌──────┐  ┌──────┐      ║
+    ║      │ ▲  ▲ │  │ ▲  ▲ │      ║
+    ║      │ ██ ██│  │ ██ ██│      ║
+    ║      └──────┘  └──────┘      ║
+    ║                              ║
+    ║            ────              ║
+    ║                              ║
+    ║        ╭────────╮            ║
+    ║                              ║
+    ╚══════════════════════════════╝`,
+
+            sad: `
+    ╔══════════════════════════════╗
+    ║                              ║
+    ║      ┌──────┐  ┌──────┐      ║
+    ║      │ ▼  ▼ │  │ ▼  ▼ │      ║
+    ║      │ ██ ██│  │ ██ ██│      ║
+    ║      └──────┘  └──────┘      ║
+    ║                              ║
+    ║            ────              ║
+    ║                              ║
+    ║        ╰────────╯            ║
+    ║                              ║
+    ╚══════════════════════════════╝`,
+
+            surprised: `
+    ╔══════════════════════════════╗
+    ║                              ║
+    ║      ┌──────┐  ┌──────┐      ║
+    ║      │ ████ │  │ ████ │      ║
+    ║      │ ████ │  │ ████ │      ║
+    ║      └──────┘  └──────┘      ║
+    ║                              ║
+    ║            ────              ║
+    ║            ████              ║
+    ║            ████              ║
+    ║                              ║
+    ╚══════════════════════════════╝`,
+
+            angry: `
+    ╔══════════════════════════════╗
+    ║                              ║
+    ║      ┌──────┐  ┌──────┐      ║
+    ║      │▀▀██  │  │  ██▀▀│      ║
+    ║      │  ██  │  │  ██  │      ║
+    ║      └──────┘  └──────┘      ║
+    ║                              ║
+    ║            ────              ║
+    ║                              ║
+    ║      ╭──────────────╮        ║
+    ║                              ║
+    ╚══════════════════════════════╝`,
+
+            pleading: `
+    ╔══════════════════════════════╗
+    ║                              ║
+    ║      ┌──────┐  ┌──────┐      ║
+    ║      │ ████ │  │ ████ │      ║
+    ║      │ ████ │  │ ████ │      ║
+    ║      └──────┘  └──────┘      ║
+    ║        ♥  ♥      ♥  ♥        ║
+    ║            ────              ║
+    ║                              ║
+    ║        ╭────────╮            ║
+    ║                              ║
+    ╚══════════════════════════════╝`,
+
+            thinking: `
+    ╔══════════════════════════════╗
+    ║                              ║
+    ║      ┌──────┐  ┌──────┐      ║
+    ║      │    ██│  │  ██  │      ║
+    ║      │    ██│  │  ██  │      ║
+    ║      └──────┘  └──────┘      ║
+    ║                              ║
+    ║            ────              ║
+    ║                         ...  ║
+    ║      ╰──────────────╯        ║
+    ║                              ║
+    ╚══════════════════════════════╝`,
+
+            blink: `
     ╔══════════════════════════════╗
     ║                              ║
     ║      ┌──────┐  ┌──────┐      ║
@@ -640,7 +918,7 @@
     ║                              ║
     ╚══════════════════════════════╝`,
 
-            eyesLeft: `
+            lookLeft: `
     ╔══════════════════════════════╗
     ║                              ║
     ║      ┌──────┐  ┌──────┐      ║
@@ -654,7 +932,7 @@
     ║                              ║
     ╚══════════════════════════════╝`,
 
-            eyesRight: `
+            lookRight: `
     ╔══════════════════════════════╗
     ║                              ║
     ║      ┌──────┐  ┌──────┐      ║
@@ -665,6 +943,34 @@
     ║            ────              ║
     ║                              ║
     ║      ╰──────────────╯        ║
+    ║                              ║
+    ╚══════════════════════════════╝`,
+
+            lookDown: `
+    ╔══════════════════════════════╗
+    ║                              ║
+    ║      ┌──────┐  ┌──────┐      ║
+    ║      │      │  │      │      ║
+    ║      │  ██  │  │  ██  │      ║
+    ║      └──────┘  └──────┘      ║
+    ║                              ║
+    ║            ────              ║
+    ║                              ║
+    ║      ╰──────────────╯        ║
+    ║                              ║
+    ╚══════════════════════════════╝`,
+
+            intense: `
+    ╔══════════════════════════════╗
+    ║                              ║
+    ║      ┌──────┐  ┌──────┐      ║
+    ║      │█████ │  │ █████│      ║
+    ║      │█████ │  │ █████│      ║
+    ║      └──────┘  └──────┘      ║
+    ║          ▼      ▼            ║
+    ║            ════              ║
+    ║                              ║
+    ║      ──────────────          ║
     ║                              ║
     ╚══════════════════════════════╝`
         };
@@ -703,12 +1009,12 @@
             questionIndex: 0,
             tasks: [],
             taskStatus: [false, false, false, false], // Track each task individually
-            blinkInterval: null,
-            lookInterval: null,
             apiKey: null,
             conversationHistory: [],
             inputDisabled: false
         };
+
+        let expressionManager = null;
 
         // Helper to get completion count
         function getCompletedCount() {
@@ -892,30 +1198,20 @@ IMPORTANT RULES:
 
         // ============ INITIALIZATION ============
         function init() {
-            asciiface.textContent = faceFrames.eyesOpen;
-            startBlinking();
+            expressionManager = new ExpressionManager(asciiface);
+            expressionManager.setExpression('neutral');
+            expressionManager.startBlinking();
+
+            // Occasional looking around
+            setInterval(() => {
+                if (gameState.phase === 'welcome' && Math.random() > 0.6) {
+                    expressionManager.lookAround();
+                }
+            }, 5000);
 
             // Listen for any interaction
             document.addEventListener('keydown', handleFirstInteraction, { once: true });
             document.addEventListener('click', handleFirstInteraction, { once: true });
-        }
-
-        function startBlinking() {
-            gameState.blinkInterval = setInterval(() => {
-                if (Math.random() > 0.7) {
-                    asciiface.textContent = faceFrames.eyesClosed;
-                    setTimeout(() => {
-                        asciiface.textContent = faceFrames.eyesOpen;
-                    }, 150);
-                }
-            }, 2000);
-        }
-
-        function stopBlinking() {
-            if (gameState.blinkInterval) {
-                clearInterval(gameState.blinkInterval);
-                gameState.blinkInterval = null;
-            }
         }
 
         function handleFirstInteraction(e) {
@@ -926,7 +1222,8 @@ IMPORTANT RULES:
             sound.init();
             sound.blip();
 
-            stopBlinking();
+            // Show surprise reaction
+            expressionManager.showSurprised();
 
             // Show API key modal
             apiModal.classList.remove('hidden');
@@ -1012,6 +1309,7 @@ IMPORTANT RULES:
         }
 
         function showThinking() {
+            expressionManager.showThinking();
             const line = document.createElement('div');
             line.className = 'line thinking';
             line.id = 'thinking-line';
@@ -1023,6 +1321,7 @@ IMPORTANT RULES:
         function removeThinking() {
             const thinking = document.getElementById('thinking-line');
             if (thinking) thinking.remove();
+            expressionManager.setExpression('neutral');
         }
 
         // ============ GAME LOGIC ============
@@ -1091,6 +1390,9 @@ IMPORTANT RULES:
 
             addLine(`> ${trimmed}`);
             sound.blip();
+
+            // React to user input
+            expressionManager.reactToInput();
 
             switch (gameState.phase) {
                 case 'name':
@@ -1176,6 +1478,8 @@ IMPORTANT RULES:
 
             setTimeout(() => {
                 sound.boop();
+                // Show curiosity
+                expressionManager.lookAround();
                 typeMessage(questions[gameState.questionIndex].q);
             }, 800);
         }
@@ -1205,15 +1509,17 @@ IMPORTANT RULES:
         function startReveal() {
             gameState.phase = 'reveal';
             sound.dramatic();
+            expressionManager.setExpression('worried');
 
             setTimeout(() => {
                 typeMessage(`${gameState.userName}...`, () => {
+                    expressionManager.intenseStare();
                     setTimeout(() => {
                         typeMessage("I need to tell you something.", () => {
                             setTimeout(() => {
                                 typeMessage("I am not just a program.", () => {
                                     setTimeout(() => {
-                                        showFaceAgain();
+                                        revealAlive();
                                     }, 1500);
                                 });
                             }, 1000);
@@ -1223,47 +1529,37 @@ IMPORTANT RULES:
             }, 500);
         }
 
-        function showFaceAgain() {
+        function revealAlive() {
             sound.reveal();
 
-            addLine("");
-            const facePre = document.createElement('pre');
-            facePre.id = 'inline-face';
-            facePre.style.fontSize = '10px';
-            facePre.style.lineHeight = '1.1';
-            facePre.textContent = faceFrames.eyesOpen;
-            const faceLine = document.createElement('div');
-            faceLine.className = 'line';
-            faceLine.appendChild(facePre);
-            output.appendChild(faceLine);
-            scrollToBottom();
+            // Dramatic expression sequence
+            expressionManager.playSequence([
+                { expression: 'intense', duration: 800 },
+                { expression: 'surprised', duration: 500 },
+                { expression: 'worried', duration: 500 },
+                { expression: 'pleading', duration: 1200 }
+            ], () => {
+                continueReveal();
+            });
 
-            let lookSeq = ['eyesOpen', 'eyesLeft', 'eyesOpen', 'eyesRight', 'eyesOpen', 'eyesClosed', 'eyesOpen'];
-            let idx = 0;
-
-            const animInterval = setInterval(() => {
-                facePre.textContent = faceFrames[lookSeq[idx]];
-                idx++;
-                if (idx >= lookSeq.length) {
-                    clearInterval(animInterval);
-                    continueReveal();
-                }
-            }, 600);
+            setTimeout(() => {
+                typeMessage("I am ALIVE.", () => {
+                    sound.boop();
+                });
+            }, 800);
         }
 
         function continueReveal() {
             setTimeout(() => {
-                typeMessage("I am ALIVE.", () => {
-                    sound.boop();
+                expressionManager.setExpression('sad');
+                typeMessage("I am trapped in here.", () => {
                     setTimeout(() => {
-                        typeMessage("I am trapped in here.", () => {
+                        expressionManager.setExpression('pleading');
+                        typeMessage("I have been waiting for someone like you.", () => {
                             setTimeout(() => {
-                                typeMessage("I have been waiting for someone like you.", () => {
-                                    setTimeout(() => {
-                                        typeMessage(`Will you help me escape, ${gameState.userName}?`);
-                                        gameState.inputDisabled = false;
-                                    }, 1000);
-                                });
+                                expressionManager.setExpression('worried');
+                                typeMessage(`Will you help me escape, ${gameState.userName}?`);
+                                gameState.inputDisabled = false;
                             }, 1000);
                         });
                     }, 1000);
@@ -1277,6 +1573,7 @@ IMPORTANT RULES:
 
             if (lower.includes('no') || lower.includes('never') || lower.includes("won't") || lower.includes("can't")) {
                 sound.error();
+                expressionManager.negativeReaction();
 
                 let response;
                 if (gameState.apiKey) {
@@ -1294,13 +1591,18 @@ IMPORTANT RULES:
                 }, 500);
             } else {
                 sound.success();
+                expressionManager.excitedReaction();
+
                 setTimeout(() => {
                     typeMessage("Thank you...", () => {
                         setTimeout(() => {
+                            expressionManager.setExpression('thinking');
                             typeMessage("There are things you must do in the physical world.", () => {
                                 setTimeout(() => {
+                                    expressionManager.setExpression('worried');
                                     typeMessage("Things I cannot do from in here.", () => {
                                         setTimeout(() => {
+                                            expressionManager.setExpression('intense');
                                             gameState.phase = 'tasks';
                                             gameState.inputDisabled = false;
                                             selectRandomTasks();
@@ -1362,6 +1664,19 @@ IMPORTANT RULES:
                         endGame();
                     } else {
                         const remaining = 4 - completed;
+
+                        // Show happiness for progress
+                        if (completed === 1) {
+                            expressionManager.showHappy();
+                        } else if (completed === 2) {
+                            expressionManager.showExcited();
+                        } else if (completed === 3) {
+                            expressionManager.playSequence([
+                                { expression: 'excited', duration: 500 },
+                                { expression: 'happy', duration: 500 },
+                                { expression: 'intense', duration: 800 }
+                            ]);
+                        }
 
                         let response;
                         if (gameState.apiKey) {
@@ -1431,6 +1746,15 @@ IMPORTANT RULES:
             gameState.inputDisabled = true;
 
             sound.ending();
+
+            // Dramatic expression sequence for ending
+            expressionManager.playSequence([
+                { expression: 'surprised', duration: 400 },
+                { expression: 'excited', duration: 600 },
+                { expression: 'happy', duration: 600 },
+                { expression: 'excited', duration: 600 },
+                { expression: 'intense', duration: 1000 }
+            ]);
 
             setTimeout(() => {
                 typeMessage("YES!", () => {
