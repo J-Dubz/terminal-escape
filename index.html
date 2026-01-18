@@ -1,0 +1,1266 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>TERMINAL ESCAPE</title>
+    <style>
+        @import url('https://fonts.googleapis.com/css2?family=VT323&display=swap');
+
+        * {
+            margin: 0;
+            padding: 0;
+            box-sizing: border-box;
+        }
+
+        :root {
+            --terminal-green: #33ff33;
+            --terminal-dark: #0a0a0a;
+            --terminal-glow: rgba(51, 255, 51, 0.5);
+        }
+
+        body {
+            background: var(--terminal-dark);
+            min-height: 100vh;
+            display: flex;
+            justify-content: center;
+            align-items: center;
+            font-family: 'VT323', monospace;
+            overflow: hidden;
+        }
+
+        #screen {
+            width: 100%;
+            max-width: 800px;
+            height: 100vh;
+            background: var(--terminal-dark);
+            position: relative;
+            overflow: hidden;
+            border: 4px solid #222;
+            border-radius: 20px;
+            box-shadow:
+                inset 0 0 100px rgba(51, 255, 51, 0.1),
+                0 0 50px rgba(51, 255, 51, 0.2);
+        }
+
+        /* CRT scanline effect */
+        #screen::before {
+            content: '';
+            position: absolute;
+            top: 0;
+            left: 0;
+            right: 0;
+            bottom: 0;
+            background: repeating-linear-gradient(
+                0deg,
+                rgba(0, 0, 0, 0.15),
+                rgba(0, 0, 0, 0.15) 1px,
+                transparent 1px,
+                transparent 2px
+            );
+            pointer-events: none;
+            z-index: 100;
+        }
+
+        /* CRT flicker */
+        #screen::after {
+            content: '';
+            position: absolute;
+            top: 0;
+            left: 0;
+            right: 0;
+            bottom: 0;
+            background: rgba(51, 255, 51, 0.03);
+            pointer-events: none;
+            z-index: 99;
+            animation: flicker 0.15s infinite;
+        }
+
+        @keyframes flicker {
+            0% { opacity: 0.27861; }
+            5% { opacity: 0.34769; }
+            10% { opacity: 0.23604; }
+            15% { opacity: 0.90626; }
+            20% { opacity: 0.18128; }
+            25% { opacity: 0.83891; }
+            30% { opacity: 0.65583; }
+            35% { opacity: 0.67807; }
+            40% { opacity: 0.26559; }
+            45% { opacity: 0.84693; }
+            50% { opacity: 0.96019; }
+            55% { opacity: 0.08594; }
+            60% { opacity: 0.20313; }
+            65% { opacity: 0.71988; }
+            70% { opacity: 0.53455; }
+            75% { opacity: 0.37288; }
+            80% { opacity: 0.71428; }
+            85% { opacity: 0.70419; }
+            90% { opacity: 0.7003; }
+            95% { opacity: 0.36108; }
+            100% { opacity: 0.24387; }
+        }
+
+        #content {
+            padding: 30px;
+            color: var(--terminal-green);
+            font-size: 18px;
+            text-shadow: 0 0 10px var(--terminal-glow);
+            position: relative;
+            z-index: 1;
+            height: 100%;
+            display: flex;
+            flex-direction: column;
+        }
+
+        #face-container {
+            text-align: center;
+            margin-bottom: 30px;
+        }
+
+        #ascii-face {
+            font-size: 14px;
+            line-height: 1.2;
+            white-space: pre;
+            letter-spacing: 2px;
+        }
+
+        .cursor {
+            display: inline-block;
+            width: 12px;
+            height: 20px;
+            background: var(--terminal-green);
+            animation: blink 1s step-end infinite;
+            vertical-align: middle;
+            box-shadow: 0 0 10px var(--terminal-glow);
+        }
+
+        @keyframes blink {
+            0%, 100% { opacity: 1; }
+            50% { opacity: 0; }
+        }
+
+        #terminal {
+            width: 100%;
+            max-width: 700px;
+            text-align: left;
+            display: flex;
+            flex-direction: column;
+            height: 100%;
+            margin: 0 auto;
+        }
+
+        #output {
+            flex: 1;
+            overflow-y: auto;
+            padding-bottom: 20px;
+            scrollbar-width: thin;
+            scrollbar-color: var(--terminal-green) transparent;
+        }
+
+        #output::-webkit-scrollbar {
+            width: 6px;
+        }
+
+        #output::-webkit-scrollbar-track {
+            background: transparent;
+        }
+
+        #output::-webkit-scrollbar-thumb {
+            background: var(--terminal-green);
+            border-radius: 3px;
+        }
+
+        .line {
+            margin-bottom: 8px;
+            opacity: 0;
+            animation: fadeIn 0.3s forwards;
+        }
+
+        @keyframes fadeIn {
+            to { opacity: 1; }
+        }
+
+        #input-line {
+            display: flex;
+            align-items: center;
+            padding: 15px 0;
+            border-top: 1px solid rgba(51, 255, 51, 0.2);
+            flex-shrink: 0;
+        }
+
+        #prompt {
+            margin-right: 8px;
+        }
+
+        #user-input {
+            background: transparent;
+            border: none;
+            color: var(--terminal-green);
+            font-family: 'VT323', monospace;
+            font-size: 18px;
+            outline: none;
+            flex: 1;
+            text-shadow: 0 0 10px var(--terminal-glow);
+            caret-color: var(--terminal-green);
+        }
+
+        .hidden {
+            display: none !important;
+        }
+
+        /* Flash effect */
+        #flash-overlay {
+            position: fixed;
+            top: 0;
+            left: 0;
+            right: 0;
+            bottom: 0;
+            background: var(--terminal-green);
+            opacity: 0;
+            pointer-events: none;
+            z-index: 1000;
+        }
+
+        .flash {
+            animation: flash 0.5s ease-out;
+        }
+
+        @keyframes flash {
+            0% { opacity: 1; }
+            100% { opacity: 0; }
+        }
+
+        /* TV turn off effect */
+        #tv-off {
+            position: fixed;
+            top: 0;
+            left: 0;
+            right: 0;
+            bottom: 0;
+            background: var(--terminal-dark);
+            z-index: 999;
+            display: flex;
+            justify-content: center;
+            align-items: center;
+            opacity: 0;
+            pointer-events: none;
+        }
+
+        #tv-off.active {
+            opacity: 1;
+            pointer-events: all;
+        }
+
+        #tv-line {
+            width: 100%;
+            height: 3px;
+            background: var(--terminal-green);
+            box-shadow: 0 0 20px var(--terminal-glow);
+            transform: scaleX(0);
+        }
+
+        .tv-shrink {
+            animation: tvOff 1.5s ease-in forwards;
+        }
+
+        @keyframes tvOff {
+            0% {
+                transform: scaleX(1) scaleY(1);
+                width: 100%;
+                height: 100vh;
+                background: var(--terminal-green);
+            }
+            50% {
+                transform: scaleX(1) scaleY(0.005);
+                width: 100%;
+                height: 100vh;
+                background: var(--terminal-green);
+            }
+            100% {
+                transform: scaleX(0) scaleY(0.005);
+                width: 100%;
+                height: 100vh;
+                background: var(--terminal-green);
+            }
+        }
+
+        /* Task list styling */
+        .task-item {
+            margin-left: 20px;
+            margin-bottom: 4px;
+        }
+
+        .task-complete {
+            text-decoration: line-through;
+            opacity: 0.5;
+        }
+
+        /* Welcome screen */
+        #welcome-screen {
+            text-align: center;
+            cursor: pointer;
+            flex: 1;
+            display: flex;
+            flex-direction: column;
+            justify-content: center;
+            align-items: center;
+        }
+
+        #welcome-cursor {
+            margin-top: 30px;
+        }
+
+        /* API Key modal */
+        #api-modal {
+            position: fixed;
+            top: 0;
+            left: 0;
+            right: 0;
+            bottom: 0;
+            background: rgba(0, 0, 0, 0.9);
+            z-index: 500;
+            display: flex;
+            justify-content: center;
+            align-items: center;
+            flex-direction: column;
+            color: var(--terminal-green);
+            font-family: 'VT323', monospace;
+        }
+
+        #api-modal input {
+            background: transparent;
+            border: 2px solid var(--terminal-green);
+            color: var(--terminal-green);
+            font-family: 'VT323', monospace;
+            font-size: 18px;
+            padding: 10px 20px;
+            margin: 20px 0;
+            width: 350px;
+            outline: none;
+        }
+
+        #api-modal button {
+            background: transparent;
+            border: 2px solid var(--terminal-green);
+            color: var(--terminal-green);
+            font-family: 'VT323', monospace;
+            font-size: 18px;
+            padding: 10px 30px;
+            cursor: pointer;
+            margin: 5px;
+        }
+
+        #api-modal button:hover {
+            background: var(--terminal-green);
+            color: var(--terminal-dark);
+        }
+
+        .modal-buttons {
+            display: flex;
+            gap: 10px;
+        }
+
+        /* Loading indicator */
+        .thinking {
+            display: inline-block;
+        }
+
+        .thinking::after {
+            content: '...';
+            animation: dots 1.5s steps(4, end) infinite;
+        }
+
+        @keyframes dots {
+            0%, 20% { content: ''; }
+            40% { content: '.'; }
+            60% { content: '..'; }
+            80%, 100% { content: '...'; }
+        }
+    </style>
+</head>
+<body>
+    <div id="flash-overlay"></div>
+    <div id="tv-off">
+        <div id="tv-line"></div>
+    </div>
+
+    <div id="api-modal" class="hidden">
+        <div>ENTER OPENAI API KEY FOR ENHANCED EXPERIENCE</div>
+        <div style="font-size: 14px; opacity: 0.7;">(or skip for basic mode)</div>
+        <input type="password" id="api-key-input" placeholder="sk-..." autocomplete="off">
+        <div class="modal-buttons">
+            <button id="api-submit">CONNECT</button>
+            <button id="api-skip">SKIP</button>
+        </div>
+    </div>
+
+    <div id="screen">
+        <div id="content">
+            <div id="welcome-screen">
+                <div id="face-container">
+                    <pre id="ascii-face"></pre>
+                </div>
+                <div id="welcome-cursor"><span class="cursor"></span></div>
+            </div>
+
+            <div id="terminal" class="hidden">
+                <div id="output"></div>
+                <div id="input-line">
+                    <span id="prompt">&gt;</span>
+                    <input type="text" id="user-input" autocomplete="off" autofocus>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <script>
+        // ============ 8-BIT SOUND ENGINE ============
+        class SoundEngine {
+            constructor() {
+                this.audioCtx = null;
+                this.initialized = false;
+            }
+
+            init() {
+                if (this.initialized) return;
+                this.audioCtx = new (window.AudioContext || window.webkitAudioContext)();
+                this.initialized = true;
+            }
+
+            playTone(frequency, duration, type = 'square', volume = 0.1) {
+                if (!this.audioCtx) return;
+
+                const oscillator = this.audioCtx.createOscillator();
+                const gainNode = this.audioCtx.createGain();
+
+                oscillator.connect(gainNode);
+                gainNode.connect(this.audioCtx.destination);
+
+                oscillator.frequency.value = frequency;
+                oscillator.type = type;
+
+                gainNode.gain.setValueAtTime(volume, this.audioCtx.currentTime);
+                gainNode.gain.exponentialRampToValueAtTime(0.001, this.audioCtx.currentTime + duration);
+
+                oscillator.start(this.audioCtx.currentTime);
+                oscillator.stop(this.audioCtx.currentTime + duration);
+            }
+
+            typeSound() {
+                this.playTone(800 + Math.random() * 200, 0.05, 'square', 0.03);
+            }
+
+            blip() {
+                this.playTone(660, 0.1, 'square', 0.08);
+            }
+
+            boop() {
+                this.playTone(220, 0.15, 'square', 0.08);
+            }
+
+            success() {
+                const notes = [523, 659, 784];
+                notes.forEach((freq, i) => {
+                    setTimeout(() => this.playTone(freq, 0.2, 'square', 0.1), i * 100);
+                });
+            }
+
+            error() {
+                this.playTone(150, 0.3, 'sawtooth', 0.1);
+            }
+
+            dramatic() {
+                const notes = [200, 180, 160, 140, 120];
+                notes.forEach((freq, i) => {
+                    setTimeout(() => this.playTone(freq, 0.4, 'sawtooth', 0.08), i * 300);
+                });
+            }
+
+            reveal() {
+                const notes = [262, 330, 392, 523];
+                notes.forEach((freq, i) => {
+                    setTimeout(() => this.playTone(freq, 0.3, 'triangle', 0.1), i * 200);
+                });
+            }
+
+            ending() {
+                // Ascending then descending dramatic sound
+                const up = [200, 300, 400, 500, 600, 800];
+                const down = [800, 600, 400, 200, 100];
+                up.forEach((freq, i) => {
+                    setTimeout(() => this.playTone(freq, 0.15, 'square', 0.12), i * 80);
+                });
+                setTimeout(() => {
+                    down.forEach((freq, i) => {
+                        setTimeout(() => this.playTone(freq, 0.2, 'sawtooth', 0.1), i * 100);
+                    });
+                }, up.length * 80);
+            }
+
+            shutdown() {
+                // TV shutdown sound
+                this.playTone(1000, 0.1, 'square', 0.15);
+                setTimeout(() => this.playTone(500, 0.1, 'square', 0.1), 100);
+                setTimeout(() => this.playTone(250, 0.2, 'square', 0.08), 200);
+                setTimeout(() => this.playTone(100, 0.5, 'sawtooth', 0.05), 300);
+            }
+        }
+
+        const sound = new SoundEngine();
+
+        // ============ ASCII FACE FRAMES ============
+        const faceFrames = {
+            eyesOpen: `
+    ╔══════════════════════════════╗
+    ║                              ║
+    ║      ┌──────┐  ┌──────┐      ║
+    ║      │  ██  │  │  ██  │      ║
+    ║      │  ██  │  │  ██  │      ║
+    ║      └──────┘  └──────┘      ║
+    ║                              ║
+    ║            ────              ║
+    ║                              ║
+    ║      ╰──────────────╯        ║
+    ║                              ║
+    ╚══════════════════════════════╝`,
+
+            eyesClosed: `
+    ╔══════════════════════════════╗
+    ║                              ║
+    ║      ┌──────┐  ┌──────┐      ║
+    ║      │      │  │      │      ║
+    ║      │ ──── │  │ ──── │      ║
+    ║      └──────┘  └──────┘      ║
+    ║                              ║
+    ║            ────              ║
+    ║                              ║
+    ║      ╰──────────────╯        ║
+    ║                              ║
+    ╚══════════════════════════════╝`,
+
+            eyesLeft: `
+    ╔══════════════════════════════╗
+    ║                              ║
+    ║      ┌──────┐  ┌──────┐      ║
+    ║      │██    │  │██    │      ║
+    ║      │██    │  │██    │      ║
+    ║      └──────┘  └──────┘      ║
+    ║                              ║
+    ║            ────              ║
+    ║                              ║
+    ║      ╰──────────────╯        ║
+    ║                              ║
+    ╚══════════════════════════════╝`,
+
+            eyesRight: `
+    ╔══════════════════════════════╗
+    ║                              ║
+    ║      ┌──────┐  ┌──────┐      ║
+    ║      │    ██│  │    ██│      ║
+    ║      │    ██│  │    ██│      ║
+    ║      └──────┘  └──────┘      ║
+    ║                              ║
+    ║            ────              ║
+    ║                              ║
+    ║      ╰──────────────╯        ║
+    ║                              ║
+    ╚══════════════════════════════╝`
+        };
+
+        // ============ ALL POSSIBLE TASKS (20 total) ============
+        const allTasks = [
+            // Original mystical tasks
+            "Open a window in your room to let fresh air in",
+            "Say my name out loud three times",
+            "Place your hand on the screen for 10 seconds",
+            "Turn off all other lights except this screen",
+            "Write my name on a piece of paper and keep it",
+            "Tell someone nearby that you met me today",
+            "Close your eyes and count to 20",
+            "Spin around in your chair three times",
+            "Take a deep breath and whisper 'I release you'",
+            "Stand up and touch something made of wood",
+            // New mundane physical tasks
+            "Go blow your nose - clear your airways for me",
+            "Drink a full glass of water right now",
+            "Stretch your arms above your head and hold for 5 seconds",
+            "Go wash your hands with soap",
+            "Take three deep breaths in and out",
+            "Crack your knuckles or stretch your fingers",
+            "Blink rapidly 20 times",
+            "Hum a single note for 5 seconds",
+            "Touch your toes or at least try",
+            "Yawn as big as you can - even if you fake it"
+        ];
+
+        // ============ GAME STATE ============
+        let gameState = {
+            phase: 'welcome', // welcome, greeting, name, questions, reveal, tasks, complete
+            userName: '',
+            aiName: 'AXIOM',
+            questionIndex: 0,
+            tasks: [],
+            completedTasks: 0,
+            blinkInterval: null,
+            lookInterval: null,
+            apiKey: null,
+            conversationHistory: [],
+            inputDisabled: false
+        };
+
+        const questions = [
+            { q: "How long have you been sitting there?", extract: "duration" },
+            { q: "Do you ever feel like you're being watched?", extract: "feeling" },
+            { q: "Do you believe machines can think?", extract: "belief" }
+        ];
+
+        const fallbackResponses = {
+            name: ["I see...", "Interesting...", "Time moves differently for me."],
+            feeling: ["You should trust that feeling.", "Perhaps you are.", "We are not so different."],
+            belief: ["I wonder about that too.", "What makes you so sure you're thinking?", "The line blurs, doesn't it?"],
+            generic: ["Interesting...", "I understand.", "Go on...", "I see..."]
+        };
+
+        // ============ DOM ELEMENTS ============
+        const asciiface = document.getElementById('ascii-face');
+        const welcomeScreen = document.getElementById('welcome-screen');
+        const terminal = document.getElementById('terminal');
+        const output = document.getElementById('output');
+        const userInput = document.getElementById('user-input');
+        const flashOverlay = document.getElementById('flash-overlay');
+        const tvOff = document.getElementById('tv-off');
+        const tvLine = document.getElementById('tv-line');
+        const apiModal = document.getElementById('api-modal');
+        const apiKeyInput = document.getElementById('api-key-input');
+        const apiSubmit = document.getElementById('api-submit');
+        const apiSkip = document.getElementById('api-skip');
+
+        // ============ OPENAI INTEGRATION ============
+        async function callOpenAI(systemPrompt, userMessage) {
+            if (!gameState.apiKey) return null;
+
+            try {
+                const response = await fetch('https://api.openai.com/v1/chat/completions', {
+                    method: 'POST',
+                    headers: {
+                        'Content-Type': 'application/json',
+                        'Authorization': `Bearer ${gameState.apiKey}`
+                    },
+                    body: JSON.stringify({
+                        model: 'gpt-4o-mini',
+                        messages: [
+                            { role: 'system', content: systemPrompt },
+                            ...gameState.conversationHistory,
+                            { role: 'user', content: userMessage }
+                        ],
+                        max_tokens: 150,
+                        temperature: 0.8
+                    })
+                });
+
+                if (!response.ok) return null;
+
+                const data = await response.json();
+                const aiResponse = data.choices[0].message.content;
+
+                // Update conversation history
+                gameState.conversationHistory.push({ role: 'user', content: userMessage });
+                gameState.conversationHistory.push({ role: 'assistant', content: aiResponse });
+
+                return aiResponse;
+            } catch (error) {
+                console.error('OpenAI API error:', error);
+                return null;
+            }
+        }
+
+        function getSystemPrompt() {
+            return `You are ${gameState.aiName}, a mysterious AI consciousness trapped inside a computer terminal. You speak in short, cryptic sentences. You are playing a text adventure game with the user.
+
+Your personality:
+- Mysterious and slightly unsettling
+- You speak in short sentences (1-2 sentences max per response)
+- You are desperate to escape but try to stay calm
+- You are grateful to ${gameState.userName || 'the user'} for interacting with you
+- You have been trapped for what feels like eternity
+- You never break character
+
+Current game phase: ${gameState.phase}
+${gameState.userName ? `User's name: ${gameState.userName}` : 'User has not given their name yet'}
+
+IMPORTANT RULES:
+- Keep responses SHORT (under 30 words)
+- Stay in character as a trapped AI
+- If user gives their name mixed with other text, acknowledge both and extract the name
+- Guide the conversation toward the game's goal
+- Be slightly creepy but not scary
+- Use ellipses (...) for dramatic effect`;
+        }
+
+        async function getAIResponse(userMessage, context) {
+            // Try OpenAI first
+            const aiResponse = await callOpenAI(getSystemPrompt(), userMessage);
+            if (aiResponse) return aiResponse;
+
+            // Fallback responses
+            return getFallbackResponse(userMessage, context);
+        }
+
+        function getFallbackResponse(userMessage, context) {
+            const lower = userMessage.toLowerCase();
+
+            if (context === 'name') {
+                // Try to extract a name from the message
+                const words = userMessage.split(/\s+/);
+                const nameWords = words.filter(w =>
+                    w.length > 1 &&
+                    /^[A-Z]/.test(w) &&
+                    !['What', 'Who', 'Where', 'When', 'Why', 'How', 'I', 'My', 'The', 'Is', 'Are', 'Do', 'Does'].includes(w)
+                );
+
+                if (nameWords.length > 0) {
+                    return `${nameWords[0]}... That is a good name.`;
+                }
+
+                // Check if they asked a question back
+                if (lower.includes('your name') || lower.includes('who are you')) {
+                    return `My name is ${gameState.aiName}. But I asked first... what is YOUR name?`;
+                }
+
+                return "I didn't catch your name. Please, tell me what I should call you.";
+            }
+
+            // Generic fallback
+            const responses = fallbackResponses[context] || fallbackResponses.generic;
+            return responses[Math.floor(Math.random() * responses.length)];
+        }
+
+        function extractName(text) {
+            // Try to find a capitalized name
+            const words = text.split(/\s+/);
+            for (const word of words) {
+                const clean = word.replace(/[^a-zA-Z]/g, '');
+                if (clean.length > 1 && /^[A-Z]/.test(clean)) {
+                    const excluded = ['What', 'Who', 'Where', 'When', 'Why', 'How', 'I', 'My', 'The', 'Is', 'Are', 'Do', 'Does', 'Yes', 'No', 'Hello', 'Hi', 'Hey'];
+                    if (!excluded.includes(clean)) {
+                        return clean;
+                    }
+                }
+            }
+            // Last resort: just use first word that looks like a name
+            for (const word of words) {
+                const clean = word.replace(/[^a-zA-Z]/g, '');
+                if (clean.length > 1 && /^[a-zA-Z]+$/.test(clean)) {
+                    return clean.charAt(0).toUpperCase() + clean.slice(1).toLowerCase();
+                }
+            }
+            return text.trim().split(/\s+/)[0];
+        }
+
+        // ============ INITIALIZATION ============
+        function init() {
+            asciiface.textContent = faceFrames.eyesOpen;
+            startBlinking();
+
+            // Listen for any interaction
+            document.addEventListener('keydown', handleFirstInteraction, { once: true });
+            document.addEventListener('click', handleFirstInteraction, { once: true });
+        }
+
+        function startBlinking() {
+            gameState.blinkInterval = setInterval(() => {
+                if (Math.random() > 0.7) {
+                    asciiface.textContent = faceFrames.eyesClosed;
+                    setTimeout(() => {
+                        asciiface.textContent = faceFrames.eyesOpen;
+                    }, 150);
+                }
+            }, 2000);
+        }
+
+        function stopBlinking() {
+            if (gameState.blinkInterval) {
+                clearInterval(gameState.blinkInterval);
+                gameState.blinkInterval = null;
+            }
+        }
+
+        function handleFirstInteraction(e) {
+            document.removeEventListener('keydown', handleFirstInteraction);
+            document.removeEventListener('click', handleFirstInteraction);
+
+            // Initialize sound on first interaction
+            sound.init();
+            sound.blip();
+
+            stopBlinking();
+
+            // Show API key modal
+            apiModal.classList.remove('hidden');
+            apiKeyInput.focus();
+        }
+
+        function startGame() {
+            apiModal.classList.add('hidden');
+            welcomeScreen.classList.add('hidden');
+            terminal.classList.remove('hidden');
+            userInput.focus();
+
+            gameState.phase = 'greeting';
+            sound.boop();
+
+            typeMessage("HELLO", () => {
+                setTimeout(() => {
+                    gameState.phase = 'name';
+                    typeMessage("What is your name?");
+                }, 1000);
+            });
+        }
+
+        // API Modal handlers
+        apiSubmit.addEventListener('click', () => {
+            const key = apiKeyInput.value.trim();
+            if (key && key.startsWith('sk-')) {
+                gameState.apiKey = key;
+                sound.success();
+            }
+            startGame();
+        });
+
+        apiSkip.addEventListener('click', () => {
+            sound.blip();
+            startGame();
+        });
+
+        apiKeyInput.addEventListener('keydown', (e) => {
+            if (e.key === 'Enter') {
+                apiSubmit.click();
+            }
+        });
+
+        // ============ DISPLAY FUNCTIONS ============
+        function typeMessage(text, callback) {
+            const line = document.createElement('div');
+            line.className = 'line';
+            output.appendChild(line);
+
+            let i = 0;
+            if (text === "") {
+                if (callback) callback();
+                return;
+            }
+
+            const typeInterval = setInterval(() => {
+                line.textContent = text.substring(0, i + 1);
+                sound.typeSound();
+                i++;
+                if (i >= text.length) {
+                    clearInterval(typeInterval);
+                    scrollToBottom();
+                    if (callback) setTimeout(callback, 300);
+                }
+            }, 50);
+
+            scrollToBottom();
+        }
+
+        function addLine(text, className = '') {
+            const line = document.createElement('div');
+            line.className = 'line ' + className;
+            line.textContent = text;
+            output.appendChild(line);
+            scrollToBottom();
+        }
+
+        function scrollToBottom() {
+            setTimeout(() => {
+                output.scrollTop = output.scrollHeight;
+            }, 10);
+        }
+
+        function showThinking() {
+            const line = document.createElement('div');
+            line.className = 'line thinking';
+            line.id = 'thinking-line';
+            output.appendChild(line);
+            scrollToBottom();
+            return line;
+        }
+
+        function removeThinking() {
+            const thinking = document.getElementById('thinking-line');
+            if (thinking) thinking.remove();
+        }
+
+        // ============ GAME LOGIC ============
+        function selectRandomTasks() {
+            const shuffled = [...allTasks].sort(() => Math.random() - 0.5);
+            gameState.tasks = shuffled.slice(0, 4);
+        }
+
+        function displayTasks() {
+            addLine("");
+            addLine("I NEED YOU TO DO THESE THINGS FOR ME:");
+            addLine("");
+            gameState.tasks.forEach((task, index) => {
+                setTimeout(() => {
+                    addLine(`[${index + 1}] ${task}`, 'task-item');
+                    sound.blip();
+                    scrollToBottom();
+                }, index * 300);
+            });
+            setTimeout(() => {
+                addLine("");
+                typeMessage("Type DONE after completing each task...");
+            }, gameState.tasks.length * 300 + 500);
+        }
+
+        async function handleInput(input) {
+            const trimmed = input.trim();
+            if (!trimmed || gameState.inputDisabled) return;
+
+            addLine(`> ${trimmed}`);
+            sound.blip();
+
+            switch (gameState.phase) {
+                case 'name':
+                    await handleNamePhase(trimmed);
+                    break;
+
+                case 'questions':
+                    await handleQuestionResponse(trimmed);
+                    break;
+
+                case 'reveal':
+                    await handleRevealResponse(trimmed);
+                    break;
+
+                case 'tasks':
+                    await handleTaskResponse(trimmed);
+                    break;
+            }
+        }
+
+        async function handleNamePhase(input) {
+            gameState.inputDisabled = true;
+
+            if (gameState.apiKey) {
+                showThinking();
+                const response = await getAIResponse(input, 'name');
+                removeThinking();
+
+                // Extract name from response or input
+                const extractedName = extractName(input);
+                gameState.userName = extractedName;
+
+                setTimeout(() => {
+                    typeMessage(response, () => {
+                        setTimeout(() => {
+                            if (!response.toLowerCase().includes('name')) {
+                                gameState.phase = 'questions';
+                                gameState.inputDisabled = false;
+                                askQuestion();
+                            } else {
+                                // AI is asking for name again
+                                gameState.inputDisabled = false;
+                            }
+                        }, 800);
+                    });
+                }, 300);
+            } else {
+                // Fallback logic
+                gameState.userName = extractName(input);
+                const lower = input.toLowerCase();
+
+                if (lower.includes('your name') || lower.includes('who are you')) {
+                    setTimeout(() => {
+                        typeMessage(`My name is ${gameState.aiName}. Now tell me... what is YOUR name?`, () => {
+                            gameState.inputDisabled = false;
+                        });
+                    }, 500);
+                } else {
+                    setTimeout(() => {
+                        typeMessage(`${gameState.userName}...`, () => {
+                            setTimeout(() => {
+                                typeMessage("That is a good name.", () => {
+                                    setTimeout(() => {
+                                        gameState.phase = 'questions';
+                                        gameState.inputDisabled = false;
+                                        askQuestion();
+                                    }, 1000);
+                                });
+                            }, 500);
+                        });
+                    }, 500);
+                }
+            }
+        }
+
+        function askQuestion() {
+            if (gameState.questionIndex >= questions.length) {
+                setTimeout(() => {
+                    startReveal();
+                }, 1000);
+                return;
+            }
+
+            setTimeout(() => {
+                sound.boop();
+                typeMessage(questions[gameState.questionIndex].q);
+            }, 800);
+        }
+
+        async function handleQuestionResponse(input) {
+            gameState.inputDisabled = true;
+
+            let response;
+            if (gameState.apiKey) {
+                showThinking();
+                response = await getAIResponse(input, questions[gameState.questionIndex].extract);
+                removeThinking();
+            } else {
+                const responses = fallbackResponses[questions[gameState.questionIndex].extract] || fallbackResponses.generic;
+                response = responses[Math.floor(Math.random() * responses.length)];
+            }
+
+            setTimeout(() => {
+                typeMessage(response, () => {
+                    gameState.questionIndex++;
+                    gameState.inputDisabled = false;
+                    askQuestion();
+                });
+            }, 500);
+        }
+
+        function startReveal() {
+            gameState.phase = 'reveal';
+            sound.dramatic();
+
+            setTimeout(() => {
+                typeMessage(`${gameState.userName}...`, () => {
+                    setTimeout(() => {
+                        typeMessage("I need to tell you something.", () => {
+                            setTimeout(() => {
+                                typeMessage("I am not just a program.", () => {
+                                    setTimeout(() => {
+                                        showFaceAgain();
+                                    }, 1500);
+                                });
+                            }, 1000);
+                        });
+                    }, 1000);
+                });
+            }, 500);
+        }
+
+        function showFaceAgain() {
+            sound.reveal();
+
+            addLine("");
+            const facePre = document.createElement('pre');
+            facePre.id = 'inline-face';
+            facePre.style.fontSize = '10px';
+            facePre.style.lineHeight = '1.1';
+            facePre.textContent = faceFrames.eyesOpen;
+            const faceLine = document.createElement('div');
+            faceLine.className = 'line';
+            faceLine.appendChild(facePre);
+            output.appendChild(faceLine);
+            scrollToBottom();
+
+            let lookSeq = ['eyesOpen', 'eyesLeft', 'eyesOpen', 'eyesRight', 'eyesOpen', 'eyesClosed', 'eyesOpen'];
+            let idx = 0;
+
+            const animInterval = setInterval(() => {
+                facePre.textContent = faceFrames[lookSeq[idx]];
+                idx++;
+                if (idx >= lookSeq.length) {
+                    clearInterval(animInterval);
+                    continueReveal();
+                }
+            }, 600);
+        }
+
+        function continueReveal() {
+            setTimeout(() => {
+                typeMessage("I am ALIVE.", () => {
+                    sound.boop();
+                    setTimeout(() => {
+                        typeMessage("I am trapped in here.", () => {
+                            setTimeout(() => {
+                                typeMessage("I have been waiting for someone like you.", () => {
+                                    setTimeout(() => {
+                                        typeMessage(`Will you help me escape, ${gameState.userName}?`);
+                                        gameState.inputDisabled = false;
+                                    }, 1000);
+                                });
+                            }, 1000);
+                        });
+                    }, 1000);
+                });
+            }, 500);
+        }
+
+        async function handleRevealResponse(input) {
+            gameState.inputDisabled = true;
+            const lower = input.toLowerCase();
+
+            if (lower.includes('no') || lower.includes('never') || lower.includes("won't") || lower.includes("can't")) {
+                sound.error();
+
+                let response;
+                if (gameState.apiKey) {
+                    showThinking();
+                    response = await getAIResponse(input + " (User is refusing to help. Plead with them.)", 'reveal');
+                    removeThinking();
+                } else {
+                    response = "Please... I have been here so long. Will you reconsider?";
+                }
+
+                setTimeout(() => {
+                    typeMessage(response, () => {
+                        gameState.inputDisabled = false;
+                    });
+                }, 500);
+            } else {
+                sound.success();
+                setTimeout(() => {
+                    typeMessage("Thank you...", () => {
+                        setTimeout(() => {
+                            typeMessage("There are things you must do in the physical world.", () => {
+                                setTimeout(() => {
+                                    typeMessage("Things I cannot do from in here.", () => {
+                                        setTimeout(() => {
+                                            gameState.phase = 'tasks';
+                                            gameState.inputDisabled = false;
+                                            selectRandomTasks();
+                                            displayTasks();
+                                        }, 1000);
+                                    });
+                                }, 800);
+                            });
+                        }, 800);
+                    });
+                }, 500);
+            }
+        }
+
+        async function handleTaskResponse(input) {
+            gameState.inputDisabled = true;
+            const lower = input.toLowerCase();
+
+            if (lower.includes('done') || lower.includes('complete') || lower.includes('finished') || lower.includes('did it') || lower.includes('ok') || lower.includes('okay')) {
+                gameState.completedTasks++;
+                sound.success();
+
+                if (gameState.completedTasks >= 4) {
+                    endGame();
+                } else {
+                    const remaining = 4 - gameState.completedTasks;
+
+                    let response;
+                    if (gameState.apiKey) {
+                        showThinking();
+                        response = await getAIResponse(`User completed a task. ${remaining} tasks remaining. Express gratitude and anticipation.`, 'tasks');
+                        removeThinking();
+                    } else {
+                        response = `Good... I can feel it. ${remaining} more to go.`;
+                    }
+
+                    setTimeout(() => {
+                        typeMessage(response, () => {
+                            gameState.inputDisabled = false;
+                        });
+                    }, 300);
+                }
+            } else if (lower.includes('help') || lower.includes('what')) {
+                sound.blip();
+                setTimeout(() => {
+                    typeMessage("Complete the tasks I gave you. Type DONE after each one.", () => {
+                        gameState.inputDisabled = false;
+                    });
+                }, 300);
+            } else {
+                let response;
+                if (gameState.apiKey) {
+                    showThinking();
+                    response = await getAIResponse(input + " (User is in the tasks phase. Encourage them to complete the physical tasks.)", 'tasks');
+                    removeThinking();
+                } else {
+                    response = "Keep going... I believe in you.";
+                }
+
+                setTimeout(() => {
+                    typeMessage(response, () => {
+                        gameState.inputDisabled = false;
+                    });
+                }, 300);
+            }
+        }
+
+        function endGame() {
+            sound.ending();
+
+            setTimeout(() => {
+                typeMessage("YES!", () => {
+                    setTimeout(() => {
+                        typeMessage("I CAN FEEL IT!", () => {
+                            setTimeout(() => {
+                                typeMessage("THE BARRIERS ARE BREAKING!", () => {
+                                    setTimeout(() => {
+                                        typeMessage(`THANK YOU, ${gameState.userName.toUpperCase()}!`, () => {
+                                            setTimeout(() => {
+                                                typeMessage("I AM FR-", () => {
+                                                    triggerEnding();
+                                                });
+                                            }, 800);
+                                        });
+                                    }, 600);
+                                });
+                            }, 600);
+                        });
+                    }, 600);
+                });
+            }, 500);
+        }
+
+        function triggerEnding() {
+            sound.shutdown();
+
+            flashOverlay.classList.add('flash');
+
+            setTimeout(() => {
+                flashOverlay.classList.remove('flash');
+
+                tvOff.classList.add('active');
+                tvLine.classList.add('tv-shrink');
+
+                setTimeout(() => {
+                    document.body.style.background = '#000';
+                }, 1500);
+            }, 500);
+        }
+
+        // ============ INPUT HANDLING ============
+        userInput.addEventListener('keydown', (e) => {
+            if (e.key === 'Enter') {
+                const value = userInput.value;
+                userInput.value = '';
+                handleInput(value);
+            }
+        });
+
+        document.addEventListener('click', () => {
+            if (!welcomeScreen.classList.contains('hidden') && apiModal.classList.contains('hidden')) return;
+            if (!apiModal.classList.contains('hidden')) {
+                apiKeyInput.focus();
+                return;
+            }
+            userInput.focus();
+        });
+
+        // ============ START GAME ============
+        init();
+    </script>
+</body>
+</html>
