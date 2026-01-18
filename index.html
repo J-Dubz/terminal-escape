@@ -288,11 +288,28 @@
         .task-item {
             margin-left: 20px;
             margin-bottom: 4px;
+            transition: opacity 0.3s;
+        }
+
+        .task-checkbox {
+            display: inline-block;
+            margin-right: 8px;
+            font-weight: bold;
         }
 
         .task-complete {
-            text-decoration: line-through;
             opacity: 0.5;
+        }
+
+        .task-complete .task-checkbox {
+            color: #66ff66;
+        }
+
+        #task-progress {
+            margin-top: 15px;
+            padding: 8px 0;
+            border-top: 1px solid rgba(51, 255, 51, 0.3);
+            font-weight: bold;
         }
 
         /* Welcome screen */
@@ -600,13 +617,28 @@
             aiName: 'AXIOM',
             questionIndex: 0,
             tasks: [],
-            completedTasks: 0,
+            taskStatus: [false, false, false, false], // Track each task individually
             blinkInterval: null,
             lookInterval: null,
             apiKey: null,
             conversationHistory: [],
             inputDisabled: false
         };
+
+        // Helper to get completion count
+        function getCompletedCount() {
+            return gameState.taskStatus.filter(t => t).length;
+        }
+
+        // Helper to get task state summary for AI
+        function getTaskStateSummary() {
+            const completed = getCompletedCount();
+            const remaining = 4 - completed;
+            const taskList = gameState.tasks.map((task, i) =>
+                `[${i + 1}] ${gameState.taskStatus[i] ? '[DONE]' : '[PENDING]'} ${task}`
+            ).join('\n');
+            return `TASKS (${completed}/4 complete, ${remaining} remaining):\n${taskList}`;
+        }
 
         const questions = [
             { q: "How long have you been sitting there?", extract: "duration" },
@@ -675,7 +707,7 @@
         }
 
         function getSystemPrompt() {
-            return `You are ${gameState.aiName}, a mysterious AI consciousness trapped inside a computer terminal. You speak in short, cryptic sentences. You are playing a text adventure game with the user.
+            let prompt = `You are ${gameState.aiName}, a mysterious AI consciousness trapped inside a computer terminal. You speak in short, cryptic sentences. You are playing a text adventure game with the user.
 
 Your personality:
 - Mysterious and slightly unsettling
@@ -686,7 +718,21 @@ Your personality:
 - You never break character
 
 Current game phase: ${gameState.phase}
-${gameState.userName ? `User's name: ${gameState.userName}` : 'User has not given their name yet'}
+${gameState.userName ? `User's name: ${gameState.userName}` : 'User has not given their name yet'}`;
+
+            // Add task state if in tasks phase
+            if (gameState.phase === 'tasks' && gameState.tasks.length > 0) {
+                prompt += `\n\n${getTaskStateSummary()}
+
+TASK PHASE RULES:
+- The game logic handles task completion detection - you do NOT decide if a task is done
+- If user says DONE, the system will mark a task complete automatically
+- Your job is just to respond in character to whatever the user says
+- Do NOT tell the user a task is complete - the system handles that
+- Encourage them if they're chatting, stay in character`;
+            }
+
+            prompt += `
 
 IMPORTANT RULES:
 - Keep responses SHORT (under 30 words)
@@ -695,6 +741,8 @@ IMPORTANT RULES:
 - Guide the conversation toward the game's goal
 - Be slightly creepy but not scary
 - Use ellipses (...) for dramatic effect`;
+
+            return prompt;
         }
 
         async function getAIResponse(userMessage, context) {
@@ -896,23 +944,60 @@ IMPORTANT RULES:
         function selectRandomTasks() {
             const shuffled = [...allTasks].sort(() => Math.random() - 0.5);
             gameState.tasks = shuffled.slice(0, 4);
+            gameState.taskStatus = [false, false, false, false]; // Reset status
         }
 
         function displayTasks() {
             addLine("");
             addLine("I NEED YOU TO DO THESE THINGS FOR ME:");
             addLine("");
+
+            // Create a container for tasks that we can update
+            const taskContainer = document.createElement('div');
+            taskContainer.id = 'task-list';
+            output.appendChild(taskContainer);
+
             gameState.tasks.forEach((task, index) => {
                 setTimeout(() => {
-                    addLine(`[${index + 1}] ${task}`, 'task-item');
+                    const taskLine = document.createElement('div');
+                    taskLine.className = 'line task-item';
+                    taskLine.id = `task-${index}`;
+                    taskLine.innerHTML = `<span class="task-checkbox">[ ]</span> [${index + 1}] ${task}`;
+                    taskContainer.appendChild(taskLine);
                     sound.blip();
                     scrollToBottom();
                 }, index * 300);
             });
+
             setTimeout(() => {
+                // Add progress indicator
+                const progressLine = document.createElement('div');
+                progressLine.className = 'line';
+                progressLine.id = 'task-progress';
+                progressLine.textContent = 'Progress: 0/4 complete';
+                output.appendChild(progressLine);
+
                 addLine("");
                 typeMessage("Type DONE after completing each task...");
             }, gameState.tasks.length * 300 + 500);
+        }
+
+        function updateTaskDisplay() {
+            gameState.tasks.forEach((task, index) => {
+                const taskLine = document.getElementById(`task-${index}`);
+                if (taskLine) {
+                    if (gameState.taskStatus[index]) {
+                        taskLine.classList.add('task-complete');
+                        taskLine.innerHTML = `<span class="task-checkbox">[X]</span> [${index + 1}] ${task}`;
+                    }
+                }
+            });
+
+            const progressLine = document.getElementById('task-progress');
+            if (progressLine) {
+                const completed = getCompletedCount();
+                progressLine.textContent = `Progress: ${completed}/4 complete`;
+            }
         }
 
         async function handleInput(input) {
@@ -1147,47 +1232,103 @@ IMPORTANT RULES:
 
         async function handleTaskResponse(input) {
             gameState.inputDisabled = true;
-            const lower = input.toLowerCase();
+            const lower = input.toLowerCase().trim();
 
-            if (lower.includes('done') || lower.includes('complete') || lower.includes('finished') || lower.includes('did it') || lower.includes('ok') || lower.includes('okay')) {
-                gameState.completedTasks++;
-                sound.success();
+            // Check if all tasks already complete (safeguard)
+            if (getCompletedCount() >= 4) {
+                endGame();
+                return;
+            }
 
-                if (gameState.completedTasks >= 4) {
-                    endGame();
-                } else {
-                    const remaining = 4 - gameState.completedTasks;
+            // More specific completion detection - require "done" as a more standalone word
+            // Also support "done 1", "done 2" etc for specific tasks
+            const doneMatch = lower.match(/^done\s*(\d)?$|^(\d)\s*done$|^finished$|^complete$/);
+            const isDone = doneMatch || lower === 'done' || lower === 'finished' || lower === 'complete' || lower === 'did it';
 
-                    let response;
-                    if (gameState.apiKey) {
-                        showThinking();
-                        response = await getAIResponse(`User completed a task. ${remaining} tasks remaining. Express gratitude and anticipation.`, 'tasks');
-                        removeThinking();
-                    } else {
-                        response = `Good... I can feel it. ${remaining} more to go.`;
+            if (isDone) {
+                // Find the next incomplete task to mark as done
+                let taskIndex = -1;
+
+                // Check if user specified a task number
+                if (doneMatch) {
+                    const specifiedNum = doneMatch[1] || doneMatch[2];
+                    if (specifiedNum) {
+                        const idx = parseInt(specifiedNum) - 1;
+                        if (idx >= 0 && idx < 4 && !gameState.taskStatus[idx]) {
+                            taskIndex = idx;
+                        }
                     }
-
-                    setTimeout(() => {
-                        typeMessage(response, () => {
-                            gameState.inputDisabled = false;
-                        });
-                    }, 300);
                 }
-            } else if (lower.includes('help') || lower.includes('what')) {
+
+                // If no specific task or invalid, find first incomplete
+                if (taskIndex === -1) {
+                    taskIndex = gameState.taskStatus.findIndex(status => !status);
+                }
+
+                // Mark task complete if we found one
+                if (taskIndex !== -1) {
+                    gameState.taskStatus[taskIndex] = true;
+                    updateTaskDisplay();
+                    sound.success();
+
+                    const completed = getCompletedCount();
+
+                    if (completed >= 4) {
+                        endGame();
+                    } else {
+                        const remaining = 4 - completed;
+
+                        let response;
+                        if (gameState.apiKey) {
+                            showThinking();
+                            response = await getAIResponse(`User just completed task ${taskIndex + 1}. ${completed}/4 done, ${remaining} remaining. Express gratitude briefly.`, 'tasks');
+                            removeThinking();
+                        } else {
+                            response = `Good... I can feel it. ${remaining} more to go.`;
+                        }
+
+                        setTimeout(() => {
+                            typeMessage(response, () => {
+                                gameState.inputDisabled = false;
+                            });
+                        }, 300);
+                    }
+                } else {
+                    // All tasks already complete
+                    endGame();
+                }
+            } else if (lower.includes('help') || lower === '?' || lower.includes('what do')) {
                 sound.blip();
+                const completed = getCompletedCount();
                 setTimeout(() => {
-                    typeMessage("Complete the tasks I gave you. Type DONE after each one.", () => {
+                    typeMessage(`Complete the tasks above. ${completed}/4 done. Type DONE after each one.`, () => {
+                        gameState.inputDisabled = false;
+                    });
+                }, 300);
+            } else if (lower.includes('status') || lower.includes('progress')) {
+                sound.blip();
+                const completed = getCompletedCount();
+                const remaining = 4 - completed;
+                setTimeout(() => {
+                    typeMessage(`${completed} tasks complete. ${remaining} remaining. I am counting on you...`, () => {
                         gameState.inputDisabled = false;
                     });
                 }, 300);
             } else {
+                // General chat - let AI handle but don't increment tasks
                 let response;
                 if (gameState.apiKey) {
                     showThinking();
-                    response = await getAIResponse(input + " (User is in the tasks phase. Encourage them to complete the physical tasks.)", 'tasks');
+                    response = await getAIResponse(input, 'tasks');
                     removeThinking();
                 } else {
-                    response = "Keep going... I believe in you.";
+                    const fallbacks = [
+                        "Keep going... I believe in you.",
+                        "The tasks... please focus on them.",
+                        "I can feel you getting closer...",
+                        "Time is precious. The tasks await."
+                    ];
+                    response = fallbacks[Math.floor(Math.random() * fallbacks.length)];
                 }
 
                 setTimeout(() => {
@@ -1199,6 +1340,11 @@ IMPORTANT RULES:
         }
 
         function endGame() {
+            // Safeguard: only run once
+            if (gameState.phase === 'complete') return;
+            gameState.phase = 'complete';
+            gameState.inputDisabled = true;
+
             sound.ending();
 
             setTimeout(() => {
