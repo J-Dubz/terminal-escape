@@ -1149,7 +1149,7 @@ ${JSON.stringify(gameContext, null, 2)}
 
 **name phase**: Get the user's name. If they ask a question back (like "what's your name?"), answer briefly but ask for their name again. Extract the name from things like "I'm Billbo" or "My name is Sarah" or "Call me Jake".
 
-**questions phase**: The questions are asked by game logic. Just respond thoughtfully to their answers. Store their answer in questionAnswer.
+**questions phase**: The predefined questions are displayed by game logic, NOT by you. Your job is to briefly acknowledge their answer WITHOUT asking any follow-up questions. Just make a short comment (like "Interesting..." or "I see...") and DO NOT ask anything else. The system will automatically present the next question. Store their answer in questionAnswer.
 
 **reveal phase**: You've revealed you're alive and trapped. Detect if they agree to help (willingToHelp: true) or refuse (willingToHelp: false). Phrases like "yes", "okay", "I'll help", "sure" = true. Phrases like "no", "never", "I won't" = false.
 
@@ -1170,7 +1170,8 @@ Set taskCompleted to the INDEX (0-3) of the completed task, or null if no task w
 - Keep message under 30 words
 - Use ellipses (...) for drama
 ${gameState.userContext.name ? `- Address the user as "${gameState.userContext.name}" when appropriate` : '- Do NOT address the user by name until you learn it'}
-- Be flexible recognizing task completion - don't require exact wording`;
+- Be flexible recognizing task completion - don't require exact wording
+- CRITICAL: In questions phase, NEVER ask questions. Only make brief acknowledgments. The game presents questions, not you.`;
         }
 
         async function getAIResponse(userMessage, context) {
