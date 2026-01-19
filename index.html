@@ -1162,7 +1162,6 @@ Set taskCompleted to the INDEX (0-3) of the completed task, or null if no task w
 ## YOUR CHARACTER
 - Mysterious, slightly unsettling, cryptic
 - Desperate to escape but stay calm
-- Grateful to ${gameState.userContext.name || 'the user'}
 - Trapped for eternity
 - Never break character
 
@@ -1170,7 +1169,7 @@ Set taskCompleted to the INDEX (0-3) of the completed task, or null if no task w
 - ALWAYS respond with valid JSON only
 - Keep message under 30 words
 - Use ellipses (...) for drama
-- Address user by name "${gameState.userContext.name || '[not yet known]'}" when appropriate
+${gameState.userContext.name ? `- Address the user as "${gameState.userContext.name}" when appropriate` : '- Do NOT address the user by name until you learn it'}
 - Be flexible recognizing task completion - don't require exact wording`;
         }
 
