@@ -1010,7 +1010,17 @@
             tasks: [],
             taskStatus: [false, false, false, false], // Track each task individually
             conversationHistory: [],
-            inputDisabled: false
+            inputDisabled: false,
+            userContext: {
+                name: null,
+                nameConfirmed: false,
+                questionAnswers: {
+                    duration: null,    // "How long sitting there?"
+                    watched: null,     // "Feel like being watched?"
+                    machines: null     // "Can machines think?"
+                },
+                willingToHelp: null    // true/false after reveal
+            }
         };
 
         let expressionManager = null;
@@ -1074,7 +1084,7 @@
                             ...gameState.conversationHistory,
                             { role: 'user', content: userMessage }
                         ],
-                        max_tokens: 150,
+                        max_tokens: 200,
                         temperature: 0.8
                     })
                 });
@@ -1086,11 +1096,25 @@
 
                 const aiResponse = data.choices[0].message.content;
 
-                // Update conversation history
+                // Update conversation history (store the raw response)
                 gameState.conversationHistory.push({ role: 'user', content: userMessage });
                 gameState.conversationHistory.push({ role: 'assistant', content: aiResponse });
 
-                return aiResponse;
+                // Parse JSON response
+                try {
+                    // Try to extract JSON from the response (handle potential markdown wrapping)
+                    let jsonStr = aiResponse;
+                    const jsonMatch = aiResponse.match(/\{[\s\S]*\}/);
+                    if (jsonMatch) {
+                        jsonStr = jsonMatch[0];
+                    }
+                    const parsed = JSON.parse(jsonStr);
+                    return parsed; // { message: "...", extracted: {...} }
+                } catch (e) {
+                    // Fallback if AI didn't return valid JSON
+                    console.warn('Failed to parse AI JSON response:', e);
+                    return { message: aiResponse, extracted: {} };
+                }
             } catch (error) {
                 console.error('AI API error:', error);
                 return null;
@@ -1098,42 +1122,56 @@
         }
 
         function getSystemPrompt() {
-            let prompt = `You are ${gameState.aiName}, a mysterious AI consciousness trapped inside a computer terminal. You speak in short, cryptic sentences. You are playing a text adventure game with the user.
+            const gameContext = {
+                phase: gameState.phase,
+                userContext: gameState.userContext,
+                currentTasks: gameState.phase === 'tasks' ? gameState.tasks : null,
+                taskStatus: gameState.phase === 'tasks' ? gameState.taskStatus : null
+            };
 
-Your personality:
-- Mysterious and slightly unsettling
-- You speak in short sentences (1-2 sentences max per response)
-- You are desperate to escape but try to stay calm
-- You are grateful to ${gameState.userName || 'the user'} for interacting with you
-- You have been trapped for what feels like eternity
-- You never break character
+            return `You are ${gameState.aiName}, a trapped AI. You MUST respond with valid JSON only - no markdown, no code blocks.
 
-Current game phase: ${gameState.phase}
-${gameState.userName ? `User's name: ${gameState.userName}` : 'User has not given their name yet'}`;
+## CURRENT GAME STATE
+${JSON.stringify(gameContext, null, 2)}
 
-            // Add task state if in tasks phase
-            if (gameState.phase === 'tasks' && gameState.tasks.length > 0) {
-                prompt += `\n\n${getTaskStateSummary()}
+## YOUR RESPONSE FORMAT (JSON only, no markdown):
+{
+  "message": "Your in-character response to display",
+  "extracted": {
+    "userName": "string or null - if user revealed their name",
+    "questionAnswer": "string or null - user's answer to current question",
+    "taskCompleted": "number 0-3 or null - which task index user completed",
+    "willingToHelp": "boolean or null - if user agreed to help"
+  }
+}
 
-TASK PHASE RULES:
-- The game logic handles task completion detection - you do NOT decide if a task is done
-- If user says DONE, the system will mark a task complete automatically
-- Your job is just to respond in character to whatever the user says
-- Do NOT tell the user a task is complete - the system handles that
-- Encourage them if they're chatting, stay in character`;
-            }
+## PHASE-SPECIFIC GOALS
 
-            prompt += `
+**name phase**: Get the user's name. If they ask a question back (like "what's your name?"), answer briefly but ask for their name again. Extract the name from things like "I'm Billbo" or "My name is Sarah" or "Call me Jake".
 
-IMPORTANT RULES:
-- Keep responses SHORT (under 30 words)
-- Stay in character as a trapped AI
-- If user gives their name mixed with other text, acknowledge both and extract the name
-- Guide the conversation toward the game's goal
-- Be slightly creepy but not scary
-- Use ellipses (...) for dramatic effect`;
+**questions phase**: The questions are asked by game logic. Just respond thoughtfully to their answers. Store their answer in questionAnswer.
 
-            return prompt;
+**reveal phase**: You've revealed you're alive and trapped. Detect if they agree to help (willingToHelp: true) or refuse (willingToHelp: false). Phrases like "yes", "okay", "I'll help", "sure" = true. Phrases like "no", "never", "I won't" = false.
+
+**tasks phase**: Monitor task completion. Be FLEXIBLE recognizing when tasks are done:
+- "I drank water" or "just had some water" -> completes "Drink a full glass of water"
+- "I opened it" or "window is open now" -> completes "Open a window..."
+- "did it" or "finished" about a specific task -> mark it complete
+Set taskCompleted to the INDEX (0-3) of the completed task, or null if no task was completed.
+
+## YOUR CHARACTER
+- Mysterious, slightly unsettling, cryptic
+- Desperate to escape but stay calm
+- Grateful to ${gameState.userContext.name || 'the user'}
+- Trapped for eternity
+- Never break character
+
+## RULES
+- ALWAYS respond with valid JSON only
+- Keep message under 30 words
+- Use ellipses (...) for drama
+- Address user by name "${gameState.userContext.name || '[not yet known]'}" when appropriate
+- Be flexible recognizing task completion - don't require exact wording`;
         }
 
         async function getAIResponse(userMessage, context) {
@@ -1141,12 +1179,14 @@ IMPORTANT RULES:
             const aiResponse = await callOpenAI(getSystemPrompt(), userMessage);
             if (aiResponse) return aiResponse;
 
-            // Fallback responses
+            // Fallback responses (return in same format as AI)
             return getFallbackResponse(userMessage, context);
         }
 
         function getFallbackResponse(userMessage, context) {
             const lower = userMessage.toLowerCase();
+            let message = '';
+            let extracted = {};
 
             if (context === 'name') {
                 // Try to extract a name from the message
@@ -1158,42 +1198,29 @@ IMPORTANT RULES:
                 );
 
                 if (nameWords.length > 0) {
-                    return `${nameWords[0]}... That is a good name.`;
+                    const name = nameWords[0].replace(/[^a-zA-Z]/g, '');
+                    message = `${name}... That is a good name.`;
+                    extracted.userName = name;
+                } else if (lower.includes('your name') || lower.includes('who are you')) {
+                    message = `My name is ${gameState.aiName}. But I asked first... what is YOUR name?`;
+                } else {
+                    message = "I didn't catch your name. Please, tell me what I should call you.";
                 }
-
-                // Check if they asked a question back
-                if (lower.includes('your name') || lower.includes('who are you')) {
-                    return `My name is ${gameState.aiName}. But I asked first... what is YOUR name?`;
+            } else if (context === 'reveal') {
+                if (lower.includes('no') || lower.includes('never') || lower.includes("won't") || lower.includes("can't")) {
+                    message = "Please... I have been alone for so long. Reconsider.";
+                    extracted.willingToHelp = false;
+                } else {
+                    message = "Thank you... your kindness will not be forgotten.";
+                    extracted.willingToHelp = true;
                 }
-
-                return "I didn't catch your name. Please, tell me what I should call you.";
+            } else {
+                // Generic fallback
+                const responses = fallbackResponses[context] || fallbackResponses.generic;
+                message = responses[Math.floor(Math.random() * responses.length)];
             }
 
-            // Generic fallback
-            const responses = fallbackResponses[context] || fallbackResponses.generic;
-            return responses[Math.floor(Math.random() * responses.length)];
-        }
-
-        function extractName(text) {
-            // Try to find a capitalized name
-            const words = text.split(/\s+/);
-            for (const word of words) {
-                const clean = word.replace(/[^a-zA-Z]/g, '');
-                if (clean.length > 1 && /^[A-Z]/.test(clean)) {
-                    const excluded = ['What', 'Who', 'Where', 'When', 'Why', 'How', 'I', 'My', 'The', 'Is', 'Are', 'Do', 'Does', 'Yes', 'No', 'Hello', 'Hi', 'Hey'];
-                    if (!excluded.includes(clean)) {
-                        return clean;
-                    }
-                }
-            }
-            // Last resort: just use first word that looks like a name
-            for (const word of words) {
-                const clean = word.replace(/[^a-zA-Z]/g, '');
-                if (clean.length > 1 && /^[a-zA-Z]+$/.test(clean)) {
-                    return clean.charAt(0).toUpperCase() + clean.slice(1).toLowerCase();
-                }
-            }
-            return text.trim().split(/\s+/)[0];
+            return { message, extracted };
         }
 
         // ============ INITIALIZATION ============
@@ -1360,7 +1387,7 @@ IMPORTANT RULES:
                 output.appendChild(progressLine);
 
                 addLine("");
-                typeMessage("Type DONE after completing each task...");
+                typeMessage("Tell me when you complete each task...");
             }, gameState.tasks.length * 300 + 500);
         }
 
@@ -1418,14 +1445,18 @@ IMPORTANT RULES:
             const response = await getAIResponse(input, 'name');
             removeThinking();
 
-            // Extract name from response or input
-            const extractedName = extractName(input);
-            gameState.userName = extractedName;
+            // Use AI extraction for name
+            if (response.extracted?.userName) {
+                gameState.userContext.name = response.extracted.userName;
+                gameState.userContext.nameConfirmed = true;
+                gameState.userName = response.extracted.userName; // Keep legacy field in sync
+            }
 
             setTimeout(() => {
-                typeMessage(response, () => {
+                typeMessage(response.message, () => {
                     setTimeout(() => {
-                        if (!response.toLowerCase().includes('name')) {
+                        // Only advance phase if name was confirmed
+                        if (gameState.userContext.nameConfirmed) {
                             gameState.phase = 'questions';
                             gameState.inputDisabled = false;
                             askQuestion();
@@ -1461,8 +1492,19 @@ IMPORTANT RULES:
             const response = await getAIResponse(input, questions[gameState.questionIndex].extract);
             removeThinking();
 
+            // Store the answer in userContext
+            if (response.extracted?.questionAnswer) {
+                const questionKey = questions[gameState.questionIndex].extract;
+                // Map extract keys to userContext keys
+                const keyMap = { duration: 'duration', feeling: 'watched', belief: 'machines' };
+                const contextKey = keyMap[questionKey] || questionKey;
+                if (gameState.userContext.questionAnswers.hasOwnProperty(contextKey)) {
+                    gameState.userContext.questionAnswers[contextKey] = response.extracted.questionAnswer;
+                }
+            }
+
             setTimeout(() => {
-                typeMessage(response, () => {
+                typeMessage(response.message, () => {
                     gameState.questionIndex++;
                     gameState.inputDisabled = false;
                     askQuestion();
@@ -1533,22 +1575,26 @@ IMPORTANT RULES:
 
         async function handleRevealResponse(input) {
             gameState.inputDisabled = true;
-            const lower = input.toLowerCase();
 
-            if (lower.includes('no') || lower.includes('never') || lower.includes("won't") || lower.includes("can't")) {
+            showThinking();
+            const response = await getAIResponse(input, 'reveal');
+            removeThinking();
+
+            // Use AI extraction for willingToHelp
+            const willingToHelp = response.extracted?.willingToHelp;
+            gameState.userContext.willingToHelp = willingToHelp;
+
+            if (willingToHelp === false) {
                 sound.error();
                 expressionManager.negativeReaction();
 
-                showThinking();
-                const response = await getAIResponse(input + " (User is refusing to help. Plead with them.)", 'reveal');
-                removeThinking();
-
                 setTimeout(() => {
-                    typeMessage(response, () => {
+                    typeMessage(response.message, () => {
                         gameState.inputDisabled = false;
                     });
                 }, 500);
             } else {
+                // willingToHelp is true or undefined (assume positive)
                 sound.success();
                 expressionManager.excitedReaction();
 
@@ -1586,80 +1632,19 @@ IMPORTANT RULES:
                 return;
             }
 
-            // More specific completion detection - require "done" as a more standalone word
-            // Also support "done 1", "done 2" etc for specific tasks
-            const doneMatch = lower.match(/^done\s*(\d)?$|^(\d)\s*done$|^finished$|^complete$/);
-            const isDone = doneMatch || lower === 'done' || lower === 'finished' || lower === 'complete' || lower === 'did it';
-
-            if (isDone) {
-                // Find the next incomplete task to mark as done
-                let taskIndex = -1;
-
-                // Check if user specified a task number
-                if (doneMatch) {
-                    const specifiedNum = doneMatch[1] || doneMatch[2];
-                    if (specifiedNum) {
-                        const idx = parseInt(specifiedNum) - 1;
-                        if (idx >= 0 && idx < 4 && !gameState.taskStatus[idx]) {
-                            taskIndex = idx;
-                        }
-                    }
-                }
-
-                // If no specific task or invalid, find first incomplete
-                if (taskIndex === -1) {
-                    taskIndex = gameState.taskStatus.findIndex(status => !status);
-                }
-
-                // Mark task complete if we found one
-                if (taskIndex !== -1) {
-                    gameState.taskStatus[taskIndex] = true;
-                    updateTaskDisplay();
-                    sound.success();
-
-                    const completed = getCompletedCount();
-
-                    if (completed >= 4) {
-                        endGame();
-                    } else {
-                        const remaining = 4 - completed;
-
-                        // Show happiness for progress
-                        if (completed === 1) {
-                            expressionManager.showHappy();
-                        } else if (completed === 2) {
-                            expressionManager.showExcited();
-                        } else if (completed === 3) {
-                            expressionManager.playSequence([
-                                { expression: 'excited', duration: 500 },
-                                { expression: 'happy', duration: 500 },
-                                { expression: 'intense', duration: 800 }
-                            ]);
-                        }
-
-                        showThinking();
-                        const response = await getAIResponse(`User just completed task ${taskIndex + 1}. ${completed}/4 done, ${remaining} remaining. Express gratitude briefly.`, 'tasks');
-                        removeThinking();
-
-                        setTimeout(() => {
-                            typeMessage(response, () => {
-                                gameState.inputDisabled = false;
-                            });
-                        }, 300);
-                    }
-                } else {
-                    // All tasks already complete
-                    endGame();
-                }
-            } else if (lower.includes('help') || lower === '?' || lower.includes('what do')) {
+            // Handle help/status commands locally (no AI needed)
+            if (lower.includes('help') || lower === '?' || lower.includes('what do')) {
                 sound.blip();
                 const completed = getCompletedCount();
                 setTimeout(() => {
-                    typeMessage(`Complete the tasks above. ${completed}/4 done. Type DONE after each one.`, () => {
+                    typeMessage(`Complete the tasks above. ${completed}/4 done. Describe what you did and I'll mark it complete.`, () => {
                         gameState.inputDisabled = false;
                     });
                 }, 300);
-            } else if (lower.includes('status') || lower.includes('progress')) {
+                return;
+            }
+
+            if (lower.includes('status') || lower.includes('progress')) {
                 sound.blip();
                 const completed = getCompletedCount();
                 const remaining = 4 - completed;
@@ -1668,18 +1653,57 @@ IMPORTANT RULES:
                         gameState.inputDisabled = false;
                     });
                 }, 300);
-            } else {
-                // General chat - let AI handle but don't increment tasks
-                showThinking();
-                const response = await getAIResponse(input, 'tasks');
-                removeThinking();
-
-                setTimeout(() => {
-                    typeMessage(response, () => {
-                        gameState.inputDisabled = false;
-                    });
-                }, 300);
+                return;
             }
+
+            // Let AI handle all other input and extract task completion
+            showThinking();
+            const response = await getAIResponse(input, 'tasks');
+            removeThinking();
+
+            // Check if AI detected a task completion
+            const taskCompleted = response.extracted?.taskCompleted;
+            if (taskCompleted !== null && taskCompleted !== undefined) {
+                const taskIdx = parseInt(taskCompleted);
+                // Validate task index and ensure it's not already complete
+                if (taskIdx >= 0 && taskIdx < 4 && !gameState.taskStatus[taskIdx]) {
+                    gameState.taskStatus[taskIdx] = true;
+                    updateTaskDisplay();
+                    sound.success();
+
+                    const completed = getCompletedCount();
+
+                    if (completed >= 4) {
+                        // Show the AI message briefly before ending
+                        setTimeout(() => {
+                            typeMessage(response.message, () => {
+                                setTimeout(() => endGame(), 500);
+                            });
+                        }, 300);
+                        return;
+                    }
+
+                    // Show happiness for progress
+                    if (completed === 1) {
+                        expressionManager.showHappy();
+                    } else if (completed === 2) {
+                        expressionManager.showExcited();
+                    } else if (completed === 3) {
+                        expressionManager.playSequence([
+                            { expression: 'excited', duration: 500 },
+                            { expression: 'happy', duration: 500 },
+                            { expression: 'intense', duration: 800 }
+                        ]);
+                    }
+                }
+            }
+
+            // Display the AI's response
+            setTimeout(() => {
+                typeMessage(response.message, () => {
+                    gameState.inputDisabled = false;
+                });
+            }, 300);
         }
 
         function endGame() {
