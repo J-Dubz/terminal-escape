@@ -1,0 +1,6 @@
+name = "terminal-escape-api"
+main = "worker.js"
+compatibility_date = "2024-01-01"
+
+[vars]
+ALLOWED_ORIGIN = "https://j-dubz.github.io"
