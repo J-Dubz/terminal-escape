@@ -68,6 +68,14 @@ The game uses structured JSON responses from OpenAI:
 - Task completion confirmation
 - Willingness to help the AI escape
 
+**Phase-Specific AI Behavior**:
+- **Name Phase**: AI can ask questions to obtain the user's name
+- **Questions Phase**: AI only makes brief acknowledgments (NO follow-up questions). The game system presents all predefined questions
+- **Reveal Phase**: AI detects if user agrees to help or refuses
+- **Tasks Phase**: AI recognizes task completion descriptions and marks tasks complete
+
+**Important**: During the questions phase, the AI MUST NOT ask its own questions. It should only respond with short acknowledgments like "I see...", "Interesting...", or "Time moves differently for me...". The game's `askQuestion()` function handles presenting each predefined question automatically.
+
 ### Task System
 
 **20 Available Tasks** (4 randomly selected per playthrough):
@@ -251,3 +259,4 @@ All sounds generated programmatically using oscillators:
 - Keep mobile keyboard handling intact
 - Ensure task tracking uses both AI extraction and fallback logic
 - Test all 15 facial expressions for proper timing
+- **CRITICAL**: In the questions phase, the AI must NEVER ask follow-up questions - only brief acknowledgments. The game system handles all question presentation via `askQuestion()`
