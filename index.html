@@ -1007,6 +1007,7 @@
             userName: '',
             aiName: 'AXIOM',
             questionIndex: 0,
+            awaitingFollowUpAnswer: false, // Track if AI asked a follow-up question
             tasks: [],
             taskStatus: [false, false, false, false], // Track each task individually
             conversationHistory: [],
@@ -1149,7 +1150,7 @@ ${JSON.stringify(gameContext, null, 2)}
 
 **name phase**: Get the user's name. If they ask a question back (like "what's your name?"), answer briefly but ask for their name again. Extract the name from things like "I'm Billbo" or "My name is Sarah" or "Call me Jake".
 
-**questions phase**: The predefined questions are displayed by game logic, NOT by you. Your job is to briefly acknowledge their answer WITHOUT asking any follow-up questions. Just make a short comment (like "Interesting..." or "I see...") and DO NOT ask anything else. The system will automatically present the next question. Store their answer in questionAnswer.
+**questions phase**: The predefined questions are displayed by game logic, NOT by you. You may ask ONE follow-up question if you need clarification, but once the user provides an answer to that follow-up, you MUST accept it and NOT ask another question. Store their answer in questionAnswer. When you have an answer (whether from the first response or after a follow-up), acknowledge it briefly without asking more questions - the system will then present the next question.
 
 **reveal phase**: You've revealed you're alive and trapped. Detect if they agree to help (willingToHelp: true) or refuse (willingToHelp: false). Phrases like "yes", "okay", "I'll help", "sure" = true. Phrases like "no", "never", "I won't" = false.
 
@@ -1503,11 +1504,27 @@ ${gameState.userContext.name ? `- Address the user as "${gameState.userContext.n
                 }
             }
 
+            // Check if AI asked a follow-up question
+            const aiAskedQuestion = response.message.includes('?');
+            const hasAnswer = response.extracted?.questionAnswer && response.extracted.questionAnswer.length > 0;
+
             setTimeout(() => {
                 typeMessage(response.message, () => {
-                    gameState.questionIndex++;
-                    gameState.inputDisabled = false;
-                    askQuestion();
+                    // Only advance to next question if:
+                    // 1. We got an answer, OR
+                    // 2. AI didn't ask a question (just acknowledged), OR
+                    // 3. We were already in a follow-up conversation (prevent infinite loops)
+                    if (hasAnswer || !aiAskedQuestion || gameState.awaitingFollowUpAnswer) {
+                        // Advance to next question
+                        gameState.questionIndex++;
+                        gameState.awaitingFollowUpAnswer = false;
+                        gameState.inputDisabled = false;
+                        askQuestion();
+                    } else {
+                        // AI asked a follow-up question - wait for user's response
+                        gameState.awaitingFollowUpAnswer = true;
+                        gameState.inputDisabled = false;
+                    }
                 });
             }, 500);
         }
